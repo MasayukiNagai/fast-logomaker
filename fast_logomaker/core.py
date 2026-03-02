@@ -253,7 +253,8 @@ class BatchLogo:
 
             self.processed_logos[idx] = {'glyphs': glyph_data}
 
-    def draw_logos(self, indices=None, rows=None, cols=None):
+    def draw_logos(self, indices=None, rows=None, cols=None,
+                   highlight_ranges=None, highlight_colors=None, highlight_alpha=0.5):
         """
         Draw specific logos in a grid layout.
         
@@ -265,6 +266,17 @@ class BatchLogo:
             Number of rows in the grid. Auto-determined if None.
         cols : int, optional
             Number of columns in the grid. Auto-determined if None.
+        highlight_ranges : list, optional
+            Highlighting spec. Supports:
+            - Global highlights using draw_single-style inputs.
+            - Per-logo highlights as a nested list aligned to ``indices``.
+              Example: [[(10, 20)], [[30, 32], [40, 41]], []]
+        highlight_colors : list, str, optional
+            Colors for highlights. Can be global (str/list) or per-logo nested
+            list aligned to ``indices`` when using per-logo ``highlight_ranges``.
+        highlight_alpha : float or list, optional
+            Highlight transparency. Can be global scalar or per-logo list aligned
+            to ``indices`` when using per-logo ``highlight_ranges``.
             
         Returns
         -------
@@ -277,6 +289,10 @@ class BatchLogo:
             indices = list(range(self.N))
 
         N = len(indices)
+        highlight_specs = self._normalize_draw_logos_highlights(
+            N, highlight_ranges=highlight_ranges, highlight_colors=highlight_colors,
+            highlight_alpha=highlight_alpha
+        )
 
         # Determine grid layout
         if rows is None and cols is None:
@@ -307,6 +323,10 @@ class BatchLogo:
 
             logo_data = self.processed_logos[idx]
             self._draw_single_logo(ax, logo_data)
+            axis_ranges, axis_colors, axis_alpha = highlight_specs[i]
+            self._add_highlights(
+                ax, axis_ranges, highlight_colors=axis_colors, highlight_alpha=axis_alpha
+            )
 
         # Turn off empty subplots
         for i in range(N, rows * cols):
@@ -316,6 +336,156 @@ class BatchLogo:
 
         plt.tight_layout()
         return fig, axes
+
+    def _is_per_logo_highlight_ranges(self, highlight_ranges):
+        """
+        Return True when highlight_ranges follows per-logo nested format.
+
+        Per-logo format is a list where each entry corresponds to one logo and
+        contains a list of highlight groups, e.g. [[(10, 20)], [[30, 31]], []].
+        """
+        if not isinstance(highlight_ranges, (list, tuple)) or len(highlight_ranges) == 0:
+            return False
+
+        saw_nested_group = False
+        for per_logo_entry in highlight_ranges:
+            if per_logo_entry is None:
+                saw_nested_group = True
+                continue
+            if not isinstance(per_logo_entry, (list, tuple)):
+                return False
+            if len(per_logo_entry) == 0:
+                saw_nested_group = True
+                continue
+            first_item = per_logo_entry[0]
+            if isinstance(first_item, (list, tuple)):
+                saw_nested_group = True
+            else:
+                # Global position-list format like [[1, 2, 3], [8, 9]]
+                return False
+        return saw_nested_group
+
+    def _is_per_logo_highlight_colors(self, highlight_colors, n_logos):
+        """Return True when highlight_colors is a per-logo aligned list."""
+        if not isinstance(highlight_colors, list) or len(highlight_colors) != n_logos:
+            return False
+
+        saw_per_logo_entry = False
+        for color_entry in highlight_colors:
+            if color_entry is None:
+                saw_per_logo_entry = True
+                continue
+            if isinstance(color_entry, str):
+                continue
+            if isinstance(color_entry, (list, tuple)):
+                saw_per_logo_entry = True
+                continue
+            return False
+        return saw_per_logo_entry
+
+    def _normalize_draw_logos_highlights(self, n_logos, highlight_ranges,
+                                         highlight_colors, highlight_alpha):
+        """
+        Normalize draw_logos highlight inputs into per-axis specs.
+
+        Returns
+        -------
+        list
+            A list of (ranges, colors, alpha) tuples, one per logo to draw.
+        """
+        if highlight_ranges is None:
+            if isinstance(highlight_alpha, (list, tuple, np.ndarray)):
+                raise ValueError(
+                    "highlight_alpha must be a scalar when highlight_ranges is not per-logo."
+                )
+            return [(None, None, highlight_alpha) for _ in range(n_logos)]
+
+        if self._is_per_logo_highlight_ranges(highlight_ranges):
+            if len(highlight_ranges) != n_logos:
+                raise ValueError(
+                    f"When using per-logo highlight_ranges, expected {n_logos} entries "
+                    f"(one per index), got {len(highlight_ranges)}."
+                )
+
+            per_logo_colors = None
+            if isinstance(highlight_colors, list):
+                has_nested_colors = any(
+                    entry is None or isinstance(entry, (list, tuple))
+                    for entry in highlight_colors
+                )
+                if has_nested_colors:
+                    if len(highlight_colors) != n_logos:
+                        raise ValueError(
+                            f"When using per-logo highlight_colors, expected {n_logos} "
+                            f"entries (one per index), got {len(highlight_colors)}."
+                        )
+                    if not self._is_per_logo_highlight_colors(highlight_colors, n_logos):
+                        raise ValueError(
+                            "Per-logo highlight_colors entries must be str, list/tuple, "
+                            "or None."
+                        )
+                    per_logo_colors = highlight_colors
+
+            per_logo_alpha = None
+            if isinstance(highlight_alpha, (list, tuple, np.ndarray)):
+                if len(highlight_alpha) != n_logos:
+                    raise ValueError(
+                        f"When using per-logo highlight_alpha, expected {n_logos} entries "
+                        f"(one per index), got {len(highlight_alpha)}."
+                    )
+                per_logo_alpha = list(highlight_alpha)
+
+            per_axis_specs = []
+            for i in range(n_logos):
+                axis_colors = per_logo_colors[i] if per_logo_colors is not None else highlight_colors
+                axis_alpha = per_logo_alpha[i] if per_logo_alpha is not None else highlight_alpha
+                per_axis_specs.append((highlight_ranges[i], axis_colors, axis_alpha))
+            return per_axis_specs
+
+        if isinstance(highlight_alpha, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "highlight_alpha must be a scalar when using global highlight_ranges."
+            )
+        return [(highlight_ranges, highlight_colors, highlight_alpha) for _ in range(n_logos)]
+
+    def _add_highlights(self, ax, highlight_ranges, highlight_colors=None, highlight_alpha=0.5):
+        """Add highlight spans to an axis using draw_single-style highlight rules."""
+        if highlight_ranges is None:
+            return
+        if len(highlight_ranges) == 0:
+            return
+
+        if isinstance(highlight_ranges[0], (int, float, np.integer, np.floating)):
+            highlight_ranges = [highlight_ranges]
+
+        if highlight_colors is None:
+            n_ranges = len(highlight_ranges)
+            highlight_colors = [plt.cm.Pastel1(i % 9) for i in range(n_ranges)]
+        elif isinstance(highlight_colors, str):
+            highlight_colors = [highlight_colors]
+
+        for positions, color in zip(highlight_ranges, highlight_colors):
+            if positions is None or len(positions) == 0:
+                continue
+            if len(positions) == 2 and isinstance(positions, tuple):
+                start, end = positions
+                ax.axvspan(start - 0.5, end - 0.5, color=color,
+                           alpha=highlight_alpha, zorder=-1)
+            else:
+                positions = sorted(positions)
+                start = positions[0]
+                prev = start
+                for curr in positions[1:] + [None]:
+                    if curr != prev + 1:
+                        end = prev
+                        if start == end:
+                            ax.axvspan(start - 0.5, start + 0.5, color=color,
+                                       alpha=highlight_alpha, zorder=-1)
+                        else:
+                            ax.axvspan(start - 0.5, end + 0.5, color=color,
+                                       alpha=highlight_alpha, zorder=-1)
+                        start = curr
+                    prev = curr
 
     def draw_single(self, idx, fixed_ylim=True, view_window=None, figsize=None,
                     highlight_ranges=None, highlight_colors=None, highlight_alpha=0.5,
@@ -369,34 +539,9 @@ class BatchLogo:
         )
         
         # Add highlighting if specified
-        if highlight_ranges is not None:
-            if isinstance(highlight_ranges[0], (int, float)):
-                highlight_ranges = [highlight_ranges]
-            if highlight_colors is None:
-                n_ranges = len(highlight_ranges)
-                highlight_colors = [plt.cm.Pastel1(i % 9) for i in range(n_ranges)]
-            elif isinstance(highlight_colors, str):
-                highlight_colors = [highlight_colors]
-            for positions, color in zip(highlight_ranges, highlight_colors):
-                if len(positions) == 2 and isinstance(positions, tuple):
-                    start, end = positions
-                    ax.axvspan(start - 0.5, end - 0.5, color=color,
-                               alpha=highlight_alpha, zorder=-1)
-                else:
-                    positions = sorted(positions)
-                    start = positions[0]
-                    prev = start
-                    for curr in positions[1:] + [None]:
-                        if curr != prev + 1:
-                            end = prev
-                            if start == end:
-                                ax.axvspan(start - 0.5, start + 0.5, color=color,
-                                           alpha=highlight_alpha, zorder=-1)
-                            else:
-                                ax.axvspan(start - 0.5, end + 0.5, color=color,
-                                           alpha=highlight_alpha, zorder=-1)
-                            start = curr
-                        prev = curr
+        self._add_highlights(
+            ax, highlight_ranges, highlight_colors=highlight_colors, highlight_alpha=highlight_alpha
+        )
                         
         # Apply view window last
         if view_window is not None:

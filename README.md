@@ -100,16 +100,23 @@ fig, ax = logo.draw_single(
 )
 ```
 
-#### `draw_logos(indices, rows, cols)`
+#### `draw_logos(indices, rows, cols, ...)`
 Draw multiple logos in a grid layout.
 
 ```python
 fig, axes = logo.draw_logos(
     indices=None,    # list of indices, or None for all
     rows=None,       # number of rows (auto if None)
-    cols=None        # number of columns (auto if None)
+    cols=None,       # number of columns (auto if None)
+    highlight_ranges=None,   # global draw_single-style highlights or per-logo nested list
+    highlight_colors=None,   # global colors (str/list) or per-logo nested list
+    highlight_alpha=0.5      # global scalar or per-logo list aligned to indices
 )
 ```
+
+When `highlight_ranges` is per-logo, use a nested list aligned to `indices`, e.g.
+`[[(10, 20)], [[30, 32], [40, 41]], []]`. Flat formats remain global (for example
+`[(60, 70), (80, 90)]` or `[[1, 2, 3], [8, 9]]`).
 
 #### `draw_variability_logo(...)`
 Draw a variability logo showing all glyphs from all logos overlaid at each position.
@@ -168,6 +175,32 @@ fig, ax = logo.draw_single(
     highlight_ranges=[(60, 70), (80, 90)],
     highlight_colors=['lightcyan', 'honeydew'],
     highlight_alpha=0.5
+)
+```
+
+### Global Highlights Across Multiple Logos
+
+```python
+fig, axes = logo.draw_logos(
+    indices=[0, 1, 2],
+    rows=1,
+    cols=3,
+    highlight_ranges=[(60, 70), (80, 90)],
+    highlight_colors=["lightcyan", "honeydew"],
+    highlight_alpha=0.5
+)
+```
+
+### Per-Logo Highlights Across Multiple Logos
+
+```python
+fig, axes = logo.draw_logos(
+    indices=[0, 1, 2],
+    rows=1,
+    cols=3,
+    highlight_ranges=[[(60, 70)], [[80, 82], [90, 91]], []],
+    highlight_colors=[["lightcyan"], ["honeydew", "lavender"], []],
+    highlight_alpha=[0.4, 0.6, 0.5]
 )
 ```
 
