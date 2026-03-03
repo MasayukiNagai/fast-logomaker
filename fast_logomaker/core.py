@@ -458,11 +458,11 @@ class BatchLogo:
         if isinstance(highlight_ranges[0], (int, float, np.integer, np.floating)):
             highlight_ranges = [highlight_ranges]
 
+        n_ranges = len(highlight_ranges)
         if highlight_colors is None:
-            n_ranges = len(highlight_ranges)
             highlight_colors = [plt.cm.Pastel1(i % 9) for i in range(n_ranges)]
         elif isinstance(highlight_colors, str):
-            highlight_colors = [highlight_colors]
+            highlight_colors = [highlight_colors] * n_ranges
 
         for positions, color in zip(highlight_ranges, highlight_colors):
             if positions is None or len(positions) == 0:

@@ -100,6 +100,8 @@ fig, ax = logo.draw_single(
 )
 ```
 
+Passing a single color string (for example `highlight_colors="yellow"`) applies that color to all highlighted regions.
+
 #### `draw_logos(indices, rows, cols, ...)`
 Draw multiple logos in a grid layout.
 
@@ -117,6 +119,7 @@ fig, axes = logo.draw_logos(
 When `highlight_ranges` is per-logo, use a nested list aligned to `indices`, e.g.
 `[[(10, 20)], [[30, 32], [40, 41]], []]`. Flat formats remain global (for example
 `[(60, 70), (80, 90)]` or `[[1, 2, 3], [8, 9]]`).
+Passing a single color string (for example `highlight_colors="yellow"`) applies that color to all highlighted regions in each plotted logo.
 
 #### `draw_variability_logo(...)`
 Draw a variability logo showing all glyphs from all logos overlaid at each position.
