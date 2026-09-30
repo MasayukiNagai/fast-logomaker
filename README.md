@@ -70,6 +70,8 @@ FastLogo(
     fade_above=0,              # alpha fade for positive values
     shade_above=0,             # color shade for positive values
     width=0.9,                 # character width
+    positions=None,            # x coordinates for each column; default 0..L-1
+    mirror_glyphs=False,       # pre-mirror glyphs so an inverted x-axis stays readable
     **kwargs
 )
 ```
@@ -96,7 +98,8 @@ fig, ax = logo.draw_single(
     highlight_ranges=None,         # list of (start, end) tuples or position lists
     highlight_colors=None,         # colors for highlights
     highlight_alpha=0.5,           # transparency for highlights
-    ax=None                        # existing axes to draw on
+    ax=None,                       # existing axes to draw on
+    apply_layout=True              # set False to skip plt.tight_layout()
 )
 ```
 
@@ -105,9 +108,10 @@ Draw multiple logos in a grid layout.
 
 ```python
 fig, axes = logo.draw_logos(
-    indices=None,    # list of indices, or None for all
-    rows=None,       # number of rows (auto if None)
-    cols=None        # number of columns (auto if None)
+    indices=None,       # list of indices, or None for all
+    rows=None,          # number of rows (auto if None)
+    cols=None,          # number of columns (auto if None)
+    apply_layout=True   # set False to skip plt.tight_layout()
 )
 ```
 
@@ -116,9 +120,10 @@ Draw a variability logo showing all glyphs from all logos overlaid at each posit
 
 ```python
 fig, ax = logo.draw_variability_logo(
-    view_window=None,    # [start, end] positions to view
+    view_window=None,    # [start, end] x coordinates to view
     figsize=None,        # figure size
-    border=True          # show axis border
+    border=True,         # show axis border
+    apply_layout=True    # set False to skip plt.tight_layout()
 )
 ```
 
@@ -194,6 +199,56 @@ fig, ax = logo.draw_variability_logo(
     figsize=(20, 2.5),
     view_window=[50, 150]
 )
+```
+
+## Positioning and layout
+
+Glyphs are placed at `0 .. L-1` unless you pass `positions`. Each glyph is `width` data-units wide (default 0.9) and centered on its coordinate, so the coordinates are normally spaced 1 apart, as genomic base positions are.
+
+```python
+logo = FastLogo(values, positions=np.arange(1000, 1050))
+logo.process_all()
+fig, ax = logo.draw_single(0)
+```
+
+A minus-strand logo usually sits under the plus strand. Give it descending coordinates and mirror the glyphs, then invert only that axis. The letters stay forward-facing while the coordinates decrease to the right:
+
+```python
+import matplotlib.pyplot as plt
+
+# + strand 5' ATGC 3' at 1000..1003. Minus strand 5' to 3' is GCAT at 1003..1000.
+def onehot(sequence):
+    index = {base: i for i, base in enumerate("ACGT")}
+    encoded = np.zeros((len(sequence), 4))
+    for position, base in enumerate(sequence):
+        encoded[position, index[base]] = 1
+    return encoded
+
+values = np.stack([onehot("ATGC"), onehot("GCAT")])
+positions = np.stack([
+    np.arange(1000, 1004),
+    np.arange(1003, 999, -1),
+])
+logo = FastLogo(values, positions=positions, mirror_glyphs=[False, True])
+logo.process_all()
+
+fig, axes = plt.subplots(2, 1, layout="constrained")
+logo.draw_single(0, ax=axes[0], apply_layout=False)
+logo.draw_single(1, ax=axes[1], apply_layout=False)
+axes[1].xaxis.set_inverted(True)
+```
+
+`positions` may also have shape `(N, L)`, and `mirror_glyphs` may be a length-`N` list, when logos in one batch use different coordinates. `draw_variability_logo()` overlays every logo on one shared axis, so it accepts only the shared forms.
+
+`highlight_ranges` and `view_window` use these same x coordinates.
+
+`draw_single()`, `draw_logos()`, and `draw_variability_logo()` call `tight_layout()` on the figure being drawn. That replaces a `constrained` layout. Pass `apply_layout=False` when the logo should stay inside the axes you provide:
+
+```python
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(layout="constrained")
+logo.draw_single(0, ax=ax, apply_layout=False)
 ```
 
 ## Color Schemes

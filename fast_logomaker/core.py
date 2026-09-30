@@ -27,7 +27,8 @@ class BatchLogo:
 
     def __init__(self, values, alphabet=None, figsize=[10, 2.5], batch_size=50,
                  font_name='sans', y_min_max=None, show_progress=True,
-                 sequences=None, contribution=False, **kwargs):
+                 sequences=None, contribution=False, positions=None,
+                 mirror_glyphs=False, **kwargs):
         """Initialize BatchLogo processor.
 
         Parameters
@@ -55,6 +56,22 @@ class BatchLogo:
             to show only the contributions of observed nucleotides (contribution
             mode). When enabled, center_values is forced to False. Default is
             False.
+        positions : array-like, optional
+            X coordinates for the L columns. Default is None, which places
+            columns at 0, 1, ..., L-1. Shape (L,) applies one axis to every
+            logo; shape (N, L) gives each logo its own coordinates. Glyphs
+            are ``width`` data-units wide (default 0.9) and centered on these
+            coordinates, so consecutive positions are normally 1 apart.
+            Coordinates may descend, for example to label a negative-strand
+            region. Axis limits run from the minimum coordinate to the
+            maximum; call ``ax.xaxis.set_inverted(True)`` after drawing to
+            display a descending axis.
+        mirror_glyphs : bool or array-like, optional
+            If True, reflect each glyph horizontally about its own center
+            before placing it. Default is False. Either one bool for every
+            logo, or N bools, one per logo. Use this together with
+            ``ax.xaxis.set_inverted(True)`` so letters still face forward
+            after the axis is reversed.
         **kwargs : dict
             Additional keyword arguments.
         """
@@ -84,6 +101,11 @@ class BatchLogo:
         self.N = self.values.shape[0]  # number of logos
         self.L = self.values.shape[1]  # length of each logo
 
+        self.positions, self._positions_per_logo = self._normalize_positions(positions)
+        self.mirror_glyphs, self._mirror_per_logo = self._normalize_mirror_glyphs(
+            mirror_glyphs
+        )
+
         self.kwargs = self._get_default_kwargs()
         self.kwargs.update(kwargs)
 
@@ -111,7 +133,13 @@ class BatchLogo:
             for char in self.alphabet:
                 self.rgb_dict[char] = get_rgb(color_scheme.get(char, 'gray'))
         else:
-            colors = COLOR_SCHEME_DICT[color_scheme]
+            try:
+                colors = COLOR_SCHEME_DICT[color_scheme]
+            except KeyError:
+                known = ", ".join(COLOR_SCHEME_DICT)
+                raise ValueError(
+                    f"Unknown color_scheme {color_scheme!r}. Known schemes: {known}"
+                ) from None
             for char in self.alphabet:
                 if char in colors:
                     self.rgb_dict[char] = get_rgb(colors[char])
@@ -131,7 +159,7 @@ class BatchLogo:
                 self._font_cache[cache_key] = fm.FontProperties(
                     family=self.font_name, weight=self.font_weight
                 )
-            except:
+            except Exception:
                 print(f"Warning: Font '{self.font_name}' with weight "
                       f"'{self.font_weight}' not found, falling back to 'sans'")
                 self._font_cache[cache_key] = fm.FontProperties(family='sans')
@@ -185,9 +213,16 @@ class BatchLogo:
 
         for idx in range(start_idx, end_idx):
             glyph_data = []
+            positions_for_idx = (
+                self.positions[idx] if self._positions_per_logo else self.positions
+            )
+            mirror_for_idx = (
+                bool(self.mirror_glyphs[idx]) if self._mirror_per_logo
+                else bool(self.mirror_glyphs)
+            )
 
-            for pos in range(self.L):
-                values = self.values[idx, pos]
+            for col, x in enumerate(positions_for_idx):
+                values = self.values[idx, col]
                 ordered_indices = self._get_ordered_indices(values)
                 values = values[ordered_indices]
                 chars = [str(self.alphabet[i]) for i in ordered_indices]
@@ -204,8 +239,9 @@ class BatchLogo:
 
                         path_data = self._path_cache[char]['normal']
                         transformed_path = self._get_transformed_path(
-                            path_data, pos, floor, ceiling,
-                            self._m_path_cache['extents'].width
+                            path_data, x, floor, ceiling,
+                            self._m_path_cache['extents'].width,
+                            mirror=mirror_for_idx
                         )
 
                         # Apply fade_above and shade_above for positive values (glyphs above x-axis)
@@ -228,7 +264,7 @@ class BatchLogo:
                             'floor': floor,
                             'ceiling': ceiling,
                             'char': char,
-                            'pos': pos
+                            'pos': col
                         })
                         floor = ceiling + self.kwargs['vsep']
 
@@ -243,8 +279,9 @@ class BatchLogo:
                                 'flipped' if self.kwargs['flip_below'] else 'normal'
                             ]
                             transformed_path = self._get_transformed_path(
-                                path_data, pos, floor, ceiling,
-                                self._m_path_cache['extents'].width
+                                path_data, x, floor, ceiling,
+                                self._m_path_cache['extents'].width,
+                                mirror=mirror_for_idx
                             )
 
                             # Apply fade and shade effects for negative values
@@ -267,13 +304,13 @@ class BatchLogo:
                                 'floor': floor,
                                 'ceiling': ceiling,
                                 'char': char,
-                                'pos': pos
+                                'pos': col
                             })
                             floor = ceiling + self.kwargs['vsep']
 
             self.processed_logos[idx] = {'glyphs': glyph_data}
 
-    def draw_logos(self, indices=None, rows=None, cols=None):
+    def draw_logos(self, indices=None, rows=None, cols=None, apply_layout=True):
         """
         Draw specific logos in a grid layout.
         
@@ -285,6 +322,10 @@ class BatchLogo:
             Number of rows in the grid. Auto-determined if None.
         cols : int, optional
             Number of columns in the grid. Auto-determined if None.
+        apply_layout : bool, optional
+            Whether to call ``tight_layout()`` on the figure being drawn.
+            Default is True. Set False when this figure uses another layout
+            engine, such as ``layout='constrained'``.
             
         Returns
         -------
@@ -326,7 +367,7 @@ class BatchLogo:
             ax = axes[row, col]
 
             logo_data = self.processed_logos[idx]
-            self._draw_single_logo(ax, logo_data)
+            self._draw_single_logo(ax, logo_data, idx=idx)
 
         # Turn off empty subplots
         for i in range(N, rows * cols):
@@ -334,12 +375,13 @@ class BatchLogo:
             col = i % cols
             axes[row, col].axis('off')
 
-        plt.tight_layout()
+        if apply_layout:
+            fig.tight_layout()
         return fig, axes
 
     def draw_single(self, idx, fixed_ylim=True, view_window=None, figsize=None,
                     highlight_ranges=None, highlight_colors=None, highlight_alpha=0.5,
-                    border=True, ax=None):
+                    border=True, ax=None, apply_layout=True):
         """
         Draw a single logo.
         
@@ -350,12 +392,14 @@ class BatchLogo:
         fixed_ylim : bool, optional
             Whether to use same y-axis limits across all logos. Default is True.
         view_window : list or tuple, optional
-            [start, end] positions to view. If None, show entire logo.
+            [start, end] x coordinates to view, in the same coordinates as
+            ``positions``. If None, show the full span of the logo.
         figsize : tuple, optional
             Figure size in inches. If None, use size from initialization.
         highlight_ranges : list of tuple/list, optional
             Either [(start, stop), ...] for continuous ranges
             or [[pos1, pos2, pos3, ...], ...] for specific positions.
+            Coordinates use the same x axis as ``positions``.
         highlight_colors : list of str or str, optional
             Colors for highlighting. Default uses plt.cm.Pastel1.
         highlight_alpha : float, optional
@@ -364,6 +408,11 @@ class BatchLogo:
             Whether to show the axis spines. Default is True.
         ax : matplotlib.axes.Axes, optional
             If provided, draw the logo on this axes.
+        apply_layout : bool, optional
+            Whether to call ``tight_layout()`` on the figure being drawn.
+            Default is True. Set False when that figure uses another layout
+            engine, such as ``layout='constrained'``. ``tight_layout()``
+            replaces that engine.
             
         Returns
         -------
@@ -385,7 +434,8 @@ class BatchLogo:
         else:
             fig = None
         self._draw_single_logo(
-            ax, self.processed_logos[idx], fixed_ylim=fixed_ylim, border=border
+            ax, self.processed_logos[idx], fixed_ylim=fixed_ylim, border=border,
+            idx=idx
         )
         
         # Add highlighting if specified
@@ -422,13 +472,14 @@ class BatchLogo:
         if view_window is not None:
             start, end = view_window
             ax.set_xlim(start - 0.5, end - 0.5)
-        plt.tight_layout()
+        if apply_layout:
+            ax.figure.tight_layout()
         if own_fig:
             return fig, ax
         else:
             return None, ax
 
-    def _draw_single_logo(self, ax, logo_data, fixed_ylim=True, border=True):
+    def _draw_single_logo(self, ax, logo_data, fixed_ylim=True, border=True, idx=None):
         """
         Draw a single logo on the given axes.
         
@@ -442,6 +493,9 @@ class BatchLogo:
             Whether to use same y-axis limits across all logos. Default is True.
         border : bool, optional
             Whether to show the axis spines. Default is True.
+        idx : int, optional
+            Logo index. Required for per-logo ``positions`` so the x limits
+            match that logo. Ignored when every logo shares one axis.
         """
         patches = []
         for glyph_data in logo_data['glyphs']:
@@ -456,7 +510,17 @@ class BatchLogo:
 
         ax.add_collection(PatchCollection(patches, match_original=True))
 
-        ax.set_xlim(-0.5, self.L - 0.5)
+        if idx is not None and self._positions_per_logo:
+            logo_positions = self.positions[idx]
+        else:
+            logo_positions = self.positions
+        if logo_positions.size == 0:
+            ax.set_xlim(-0.5, -0.5)
+        else:
+            ax.set_xlim(
+                float(np.min(logo_positions)) - 0.5,
+                float(np.max(logo_positions)) + 0.5,
+            )
 
         if fixed_ylim and self.y_min_max is not None:
             ax.set_ylim(self.y_min_max[0], self.y_min_max[1])
@@ -477,6 +541,51 @@ class BatchLogo:
 
         for spine in ax.spines.values():
             spine.set_visible(border)
+
+    def _normalize_positions(self, positions):
+        """Return ``(coordinates, per_logo)`` for the x axis of each column."""
+        if positions is None:
+            return np.arange(self.L), False
+
+        arr = np.asarray(positions)
+        if arr.ndim == 1:
+            if arr.shape != (self.L,):
+                raise ValueError(
+                    f"positions has length {arr.shape[0]}, must match L ({self.L})"
+                )
+            per_logo = False
+        elif arr.ndim == 2:
+            if arr.shape != (self.N, self.L):
+                raise ValueError(
+                    f"positions has shape {arr.shape}, must be "
+                    f"({self.N}, {self.L}) for per-logo positions"
+                )
+            per_logo = True
+        else:
+            raise ValueError(
+                "positions must be 1-D (shared) or 2-D (per-logo), "
+                f"got ndim={arr.ndim}"
+            )
+        if not np.issubdtype(arr.dtype, np.number):
+            raise ValueError("positions must be numeric")
+        if not np.isfinite(arr).all():
+            raise ValueError("positions must be finite")
+        return arr, per_logo
+
+    def _normalize_mirror_glyphs(self, mirror_glyphs):
+        """Return ``(flag_or_flags, per_logo)`` for horizontal glyph mirroring."""
+        if isinstance(mirror_glyphs, (bool, np.bool_)):
+            return bool(mirror_glyphs), False
+
+        arr = np.asarray(mirror_glyphs)
+        if arr.ndim == 0:
+            return bool(arr), False
+        if arr.shape != (self.N,):
+            raise ValueError(
+                f"mirror_glyphs has shape {arr.shape}, must be a bool "
+                f"or length {self.N} for per-logo mirroring"
+            )
+        return arr, True
 
     def _get_default_kwargs(self):
         """Get default parameters for logo creation."""
@@ -506,7 +615,7 @@ class BatchLogo:
         else:  # fixed
             return np.array(range(len(values)))[::-1]
 
-    def _get_transformed_path(self, path_data, pos, floor, ceiling, m_width):
+    def _get_transformed_path(self, path_data, pos, floor, ceiling, m_width, mirror=False):
         """Get transformed path with proper scaling and position."""
         base_path = path_data['path']
         base_extents = path_data['extents']
@@ -524,6 +633,11 @@ class BatchLogo:
         transform = Affine2D()
         transform.translate(tx=-base_extents.xmin, ty=-base_extents.ymin)
         transform.scale(hstretch, vstretch)
+        if mirror:
+            # Reflect about the glyph center. Inverting the x-axis later
+            # mirrors glyphs a second time, so they face forward again.
+            transform.scale(-1, 1)
+            transform.translate(tx=char_width, ty=0)
         transform.translate(
             tx=pos - bbox_width / 2.0 + self.kwargs['vpad'] + char_shift,
             ty=floor
@@ -553,24 +667,33 @@ class BatchLogo:
         L = len(sequences[0])
         oh = np.zeros((N, L, A), dtype=np.float64)
         for n, seq in enumerate(sequences):
+            if len(seq) != L:
+                raise ValueError(
+                    f"sequence {n} has length {len(seq)}, expected {L}"
+                )
             for pos, char in enumerate(seq):
                 idx = char_to_idx.get(char)
                 if idx is not None:
                     oh[n, pos, idx] = 1.0
         return oh
 
-    def draw_variability_logo(self, view_window=None, figsize=None, border=True):
+    def draw_variability_logo(self, view_window=None, figsize=None, border=True,
+                               apply_layout=True):
         """
         Draw a variability logo showing all glyphs from all clusters overlaid.
         
         Parameters
         ----------
         view_window : list or tuple, optional
-            [start, end] positions to view. If None, show entire logo.
+            [start, end] x coordinates to view, in the same coordinates as
+            ``positions``. If None, show the full span of the logo.
         figsize : tuple, optional
             Figure size in inches. If None, use size from initialization.
         border : bool, optional
             Whether to show the axis spines. Default is True.
+        apply_layout : bool, optional
+            Whether to call ``tight_layout()`` on the figure being drawn.
+            Default is True.
             
         Returns
         -------
@@ -579,11 +702,21 @@ class BatchLogo:
         ax : matplotlib.axes.Axes
             The axes object.
         """
+        if not self._m_path_cache:
+            raise ValueError(
+                "Logos have not been processed yet. Run process_all() first."
+            )
+        if self._positions_per_logo or self._mirror_per_logo:
+            raise ValueError(
+                "draw_variability_logo does not support per-logo positions "
+                "or mirror_glyphs; pass one shared axis and one mirror flag."
+            )
         logo_data = {'glyphs': []}
+        mirror = bool(self.mirror_glyphs)
 
-        for pos in range(self.L):
+        for col, x in enumerate(self.positions):
             for cluster_idx in range(self.values.shape[0]):
-                values = self.values[cluster_idx, pos]
+                values = self.values[cluster_idx, col]
                 ordered_indices = self._get_ordered_indices(values)
                 values = values[ordered_indices]
                 chars = [str(self.alphabet[i]) for i in ordered_indices]
@@ -598,8 +731,9 @@ class BatchLogo:
 
                         path_data = self._path_cache[char]['normal']
                         transformed_path = self._get_transformed_path(
-                            path_data, pos, floor, ceiling,
-                            self._m_path_cache['extents'].width
+                            path_data, x, floor, ceiling,
+                            self._m_path_cache['extents'].width,
+                            mirror=mirror
                         )
 
                         logo_data['glyphs'].append({
@@ -623,8 +757,9 @@ class BatchLogo:
                                 'flipped' if self.kwargs['flip_below'] else 'normal'
                             ]
                             transformed_path = self._get_transformed_path(
-                                path_data, pos, floor, ceiling,
-                                self._m_path_cache['extents'].width
+                                path_data, x, floor, ceiling,
+                                self._m_path_cache['extents'].width,
+                                mirror=mirror
                             )
 
                             logo_data['glyphs'].append({
@@ -647,7 +782,8 @@ class BatchLogo:
             start, end = view_window
             ax.set_xlim(start - 0.5, end - 0.5)
 
-        plt.tight_layout()
+        if apply_layout:
+            fig.tight_layout()
         return fig, ax
 
     def style_glyphs_in_sequence(self, sequence, color='darkorange'):
@@ -661,6 +797,10 @@ class BatchLogo:
         color : str, optional
             Color for matching glyphs. Default is 'darkorange'.
         """
+        if not self.processed_logos:
+            raise ValueError(
+                "Logos have not been processed yet. Run process_all() first."
+            )
         if not isinstance(sequence, str):
             raise TypeError('sequence must be a string')
         if len(sequence) != self.L:
