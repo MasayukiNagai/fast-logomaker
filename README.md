@@ -186,32 +186,6 @@ fig, ax = logo.draw_single(
 )
 ```
 
-### Global Highlights Across Multiple Logos
-
-```python
-fig, axes = logo.draw_logos(
-    indices=[0, 1, 2],
-    rows=1,
-    cols=3,
-    highlight_ranges=[(60, 70), (80, 90)],
-    highlight_colors=["lightcyan", "honeydew"],
-    highlight_alpha=0.5
-)
-```
-
-### Per-Logo Highlights Across Multiple Logos
-
-```python
-fig, axes = logo.draw_logos(
-    indices=[0, 1, 2],
-    rows=1,
-    cols=3,
-    highlight_ranges=[[(60, 70)], [[80, 82], [90, 91]], []],
-    highlight_colors=[["lightcyan"], ["honeydew", "lavender"], []],
-    highlight_alpha=[0.4, 0.6, 0.5]
-)
-```
-
 ### Fixed Y-Axis Limits Across Multiple Logos
 
 ```python
