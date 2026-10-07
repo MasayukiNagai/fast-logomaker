@@ -194,3 +194,44 @@ def test_draw_logos_per_logo_empty_entry_has_no_highlights():
         assert len(ax.patches) == expected_counts[i]
 
     plt.close(fig)
+
+
+def test_draw_logos_rgb_tuple_colors_with_per_logo_ranges():
+    logo = _build_logo(n_logos=2, length=12)
+    indices = [0, 1]
+    red, green = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
+
+    # A list of RGB tuples is one color per range, shared by every logo.
+    fig, axes = logo.draw_logos(
+        indices=indices,
+        highlight_ranges=[[(1, 3)], [(4, 6), (8, 10)]],
+        highlight_colors=[red, green],
+    )
+    used = _used_axes(axes, len(indices))
+    _assert_patches_are_color(used[0], red)
+    assert [p.get_facecolor()[:3] for p in used[1].patches] == [red, green]
+    plt.close(fig)
+
+    # An RGB tuple as a per-logo entry colors every range on that axis.
+    fig, axes = logo.draw_logos(
+        indices=indices,
+        highlight_ranges=[[(1, 3)], [(4, 6), (8, 10)]],
+        highlight_colors=[[red], green],
+    )
+    used = _used_axes(axes, len(indices))
+    _assert_patches_are_color(used[0], red)
+    assert len(used[1].patches) == 2
+    _assert_patches_are_color(used[1], green)
+    plt.close(fig)
+
+
+def test_draw_single_rgb_tuple_color_broadcasts_to_all_ranges():
+    logo = _build_logo(n_logos=1, length=12)
+
+    fig, ax = logo.draw_single(
+        0, highlight_ranges=[(1, 3), (6, 8)], highlight_colors=(0.0, 0.0, 1.0)
+    )
+
+    assert len(ax.patches) == 2
+    _assert_patches_are_color(ax, (0.0, 0.0, 1.0))
+    plt.close(fig)

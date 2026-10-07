@@ -14,7 +14,7 @@ from tqdm import tqdm
 import matplotlib.font_manager as fm
 from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D
-from matplotlib.colors import to_rgb
+from matplotlib.colors import is_color_like, to_rgb
 
 
 class BatchLogo:
@@ -437,7 +437,8 @@ class BatchLogo:
             if color_entry is None:
                 saw_per_logo_entry = True
                 continue
-            if isinstance(color_entry, str):
+            if is_color_like(color_entry):
+                # One color (name, hex or RGB/RGBA tuple) for that axis
                 continue
             if isinstance(color_entry, (list, tuple)):
                 saw_per_logo_entry = True
@@ -471,8 +472,10 @@ class BatchLogo:
 
             per_logo_colors = None
             if isinstance(highlight_colors, list):
+                # An RGB/RGBA tuple is one color, not a per-logo color list
                 has_nested_colors = any(
-                    entry is None or isinstance(entry, (list, tuple))
+                    entry is None
+                    or (isinstance(entry, (list, tuple)) and not is_color_like(entry))
                     for entry in highlight_colors
                 )
                 if has_nested_colors:
@@ -483,8 +486,8 @@ class BatchLogo:
                         )
                     if not self._is_per_logo_highlight_colors(highlight_colors, n_logos):
                         raise ValueError(
-                            "Per-logo highlight_colors entries must be str, list/tuple, "
-                            "or None."
+                            "Per-logo highlight_colors entries must be a color, a list "
+                            "of colors, or None."
                         )
                     per_logo_colors = highlight_colors
 
@@ -523,7 +526,7 @@ class BatchLogo:
         n_ranges = len(highlight_ranges)
         if highlight_colors is None:
             highlight_colors = [plt.cm.Pastel1(i % 9) for i in range(n_ranges)]
-        elif isinstance(highlight_colors, str):
+        elif is_color_like(highlight_colors):
             highlight_colors = [highlight_colors] * n_ranges
 
         for positions, color in zip(highlight_ranges, highlight_colors):
