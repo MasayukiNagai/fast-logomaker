@@ -13,7 +13,7 @@ from .colors import (
 # Primary class name
 FastLogo = BatchLogo
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "FastLogo",
     "BatchLogo",  # backwards compatibility alias

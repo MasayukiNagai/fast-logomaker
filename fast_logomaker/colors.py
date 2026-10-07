@@ -215,7 +215,7 @@ def get_rgb(color_spec):
     if isinstance(color_spec, str):
         try:
             rgb = np.array(to_rgb(color_spec))
-        except:
+        except Exception:
             check(False, 'invalid choice: color_spec=%s' % color_spec)
 
     elif isinstance(color_spec, (list, tuple, np.ndarray)):
@@ -288,14 +288,14 @@ def get_color_dict(color_scheme, chars):
             try:
                 rgb = to_rgb(color_scheme)
                 color_dict = dict([(c, rgb) for c in chars])
-            except:
+            except Exception:
                 check(False, 'invalid choice: color_scheme=%s' % color_scheme)
 
     elif isinstance(color_scheme, (list, tuple, np.ndarray)):
         check(len(color_scheme) == 3,
               'color_scheme, if array, must be of length 3.')
-        rgb = np.ndarray(color_scheme)
-        color_dict = dict([(c, rgb) for c in chars])
+        rgb = np.array(color_scheme, dtype=float)
+        color_dict = dict([(c, rgb.copy()) for c in chars])
 
     else:
         check(False,
